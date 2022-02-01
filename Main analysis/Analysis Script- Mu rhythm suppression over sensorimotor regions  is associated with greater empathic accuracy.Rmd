@@ -1,0 +1,647 @@
+---
+title: Analysis Script accompanying the paper "Mu rhythm suppression over sensorimotor
+  regions  is associated with greater empathic accuracy"
+author: "Shir Genzer"
+date: "20 7 2021"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+```{r library+function, echo=FALSE, warning=FALSE, message=FALSE }
+library(emmeans ) #for function emmeans
+library(lme4) # for lmer and associated functions
+library(dplyr)
+library(ggplot2)
+library(ggsignif ) #for function geom_signif
+library(pbkrtest) # for function KRmodcomp
+library(sjPlot) #  for function tab_model
+library(reshape) # melt
+library(pander) # for function pander
+
+
+#adding CI to output of emmeans + round 
+emmeans_confint <- function(emmeans_SummaryObject) {
+  emmeans_SummaryObject<- as.data.frame(emmeans_SummaryObject) #convert to data frame
+  emmeans_SummaryObject[,"CI"] <- 
+    paste0(round(emmeans_SummaryObject[,2]-emmeans_SummaryObject[,3]*1.965,2),
+           " - ",round(emmeans_SummaryObject[,2]+emmeans_SummaryObject[,3]*1.965,2)) # CI calculation 
+emmeans_SummaryObject[,c(2,5)] <-  round(emmeans_SummaryObject[,c(2,5)],2) # round estimate+ t value
+    emmeans_SummaryObject[,c("df")] <- round(emmeans_SummaryObject[,c("df")]) #round df
+  emmeans_SummaryObject[,"p.value"] <- format.pval(as.numeric(emmeans_SummaryObject[,"p.value"]),eps = .001, digits = 2) #round p value 
+  return(emmeans_SummaryObject)
+}
+
+
+PtoStars <- function(x){
+  return( cut(x, breaks = c(0, 0.001, 0.01, 0.05, 0.1, 1),
+              include.lowest = T,
+              labels = c('\u002A\u002A\u002A', '\u002A\u002A', '\u002A', '\u05C4', '')))}
+
+
+RemovaOutliers <- function(variable,SD,data){
+  if(length(which((scale(data[,variable])> SD)| (scale(data[,variable])< -SD))>0)){
+    newData <- data[-which((scale(data[,variable])> SD)| (scale(data[,variable])< -SD)),]} else {
+      warning("no outliers")
+      newData <- data}
+  return( newData )
+}
+
+```
+
+
+
+## Experiment 1 
+
+First, we examined the levels of suppression across the different sites:
+
+```{r Exp1-suppression levels, echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp1_ThreeSecData <- read.csv("Data_3Seconds_Experiment1.csv")
+
+Exp1_ThreeSecData$conditionRelevel = factor(Exp1_ThreeSecData$condition, 
+                                             levels =  c("videoOnly", "audioOnly", "both"))
+
+#### ---- Explanation of variables ---- ####
+
+# participantID -  The participant's ID number
+# videoID -  The stimuli number
+# condition -  The viewing conditions: video-only, audio-only, and video+audio (i.e, videoOnly, audioOnly,both)
+# time - The time point in the video
+# C3_mu_suppression - Mu suppression measured over C3
+# O1_alpha_suppression - Alpha suppression measured over O1
+# C4_mu_suppression - Mu suppression measured over C4
+# O2_alpha_suppression - Alpha suppression measured over O2
+# Central_suppression - Mean mu suppression measured over the central sites (C3 and C4)
+# Occipital_suppression -Mean alpha suppression measured over the occipital sites (O1 and O2)
+# rating- The participant's valence rating
+# targetRating- The target's valence rating
+# ratingChange- The change in the participant's rating relative to the previous time point
+# ratingChangeCategorical- The categorical value of the participant's rating  change (i.e., Decrease, Maintain, Decrease)
+# targetRatingChange- The change in the target rating relative to the previous time point
+# targetRatingChangeCategorical- The categorical value of the target's rating  change (i.e., Decrease, Maintain, Decrease)
+# detectChange- Correct or incorrect change detection (i.e., TRUE, FALSE)
+
+
+
+
+# Suppression over the central sites
+
+lmer_central_suppression_condition = lmerTest::lmer(scale(Central_suppression) ~ condition + (1|participantID) + (1|videoID), Exp1_ThreeSecData)
+
+# Post-hoc contrasts with Bonferroni corrections 
+Post_hoc_central_suppression_condition <- emmeans(lmer_central_suppression_condition,list(pairwise ~ condition), adjust= "bonferroni")
+
+# Calculation of CI to the contrasts
+Post_hoc_central_suppression_condition_CI<-  emmeans_confint(Post_hoc_central_suppression_condition$`pairwise differences of condition`)
+
+print("central suppression")
+pander(Post_hoc_central_suppression_condition_CI,split.table=160)
+
+
+# Suppression over the occipital sites
+lmer_occipital_suppression_condition = lmerTest::lmer(scale(Occipital_suppression) ~ conditionRelevel + (1|participantID) + (1|videoID), Exp1_ThreeSecData)
+
+# Post-hoc contrasts with Bonferroni corrections 
+Post_hoc_occipital_suppression_condition <- emmeans(lmer_occipital_suppression_condition,list(pairwise ~ conditionRelevel), adjust= "bonferroni")
+
+# Calculation of CI to the contrasts
+Post_hoc_occipital_suppression_condition_CI <-  emmeans_confint(Post_hoc_occipital_suppression_condition$`pairwise differences of conditionRelevel`)
+
+print("occipital suppression")
+pander(Post_hoc_occipital_suppression_condition_CI,split.table=160)
+
+
+```
+
+
+```{r Exp1-suppression levels-Plot, echo=FALSE, warning=FALSE, message=FALSE}
+
+
+lmer_central_suppression_condition_notScale = lmerTest::lmer(Central_suppression ~ condition + (1|participantID) + (1|videoID), Exp1_ThreeSecData)
+lmer_occipital_suppression_condition_notScale = lmerTest::lmer(Occipital_suppression ~ condition + (1|participantID) + (1|videoID), Exp1_ThreeSecData)
+
+
+# Extracting the estimated values of the central suppression from the model
+central_suppression_estimatedMean <- as.data.frame(emmeans(lmer_central_suppression_condition_notScale,list(pairwise ~ condition), adjust= "bonferroni")$`emmeans of condition`) %>% mutate(site= "Central")
+
+# Extracting the estimated values of the occipital suppression from the model
+occipital_suppression_estimatedMean <- as.data.frame(emmeans(lmer_occipital_suppression_condition_notScale,list(pairwise ~ condition), adjust= "bonferroni")$`emmeans of condition`)%>% mutate(site= "Occipital") 
+
+# Consolidation of the estimated central and occipital suppression values
+suppressionData <- rbind(central_suppression_estimatedMean,occipital_suppression_estimatedMean)
+
+pander(suppressionData)
+
+suppressionData$condition <- factor(suppressionData$condition, levels = c('both','audioOnly','videoOnly'),labels = c("Audio-Video", "Audio-Only", "Video-Only"))
+
+
+
+ggplot(suppressionData, aes(x=site, y=emmean, fill=condition)) + 
+  geom_bar(stat="identity", position=position_dodge()) + ylim(-0.2,0.50)+
+  geom_errorbar(aes( ymin=emmean-SE, ymax=emmean+SE),width=.2, position=position_dodge(.9)) +
+  labs(y="Averaged mu/alpha\nrhythms from models",
+       x="Site (bilateral)",
+       title = "Alpha and mu rhythms in the\ndifferent conditions")  +
+  scale_fill_manual(name = "Condition",
+                    labels = c("Audio-Video", "Audio-Only", "Video-Only"),
+                    values=c("#F8766D", "#619CFF", "#00BA38"))+theme_bw() + 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")+
+  geom_signif(y_position=c(0.4, 0.45,0.4,0.4,0.45), xmin=c(0.7, 0.7,1.7,2.02,1.7), 
+              xmax=c(1, 1.3,1.97,2.29,2.29), annotation=c("***", "***","***","***","***"), tip_length=0.02)
+
+```
+
+
+
+Next, we turned to the video-level analyses predicting empathic accuracy:
+
+
+```{r Exp1-empathic accuracy video-level analyses,echo=FALSE, warning=FALSE, message=FALSE }
+
+
+Exp1_VideoLevelData <- read.csv("Data_VideoLevel_Experiment1.csv")
+
+
+Exp1_VideoLevelData$conditionRef <- factor(Exp1_VideoLevelData$condition, levels =  c("both", "videoOnly", "audioOnly"))
+
+#### ---- Explanation of variables ---- ####
+
+# participantID -  The participant's ID number
+# videoID -  The stimuli number
+# condition -  The viewing conditions: video-only, audio-only, and video+audio (i.e, videoOnly, audioOnly,both)
+
+# C3_mu_suppression - Mu suppression measured over C3 
+# C4_mu_suppression - Mu suppression measured over C4
+# O1_alpha_suppression - Alpha suppression measured over O1
+# O2_alpha_suppression - Alpha suppression measured over O2
+# accuracy - The correlation of the participant's judgments with the target's own self-reported affect
+# Age- The participant's age
+# Gender- The participant's gender(i.e., Female, Male)
+# Race_1- American Indian
+# Race_2- East Asian
+# Race_3- Pacific Islander
+# Race_4- African American
+# Race_5- White 
+# Race_6- Latin
+# Race_7- Southeast Asian
+# Race_8- Middle Eastern
+# Race_9- Other
+# Race_9_TEXT- Participant free detail on the meaning of "Other"
+
+
+
+# the four model's comparison: 
+
+lmerAccuracy_Interaction = lmer(accuracy ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) * conditionRef + (1|participantID) + (1|videoID), Exp1_VideoLevelData, REML=FALSE)
+lmerAccuracy_Suppression_Condition = lmer(accuracy ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), Exp1_VideoLevelData, REML=FALSE)
+lmerAccuracy_Suppression = lmer(accuracy ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + (1|participantID) + (1|videoID), Exp1_VideoLevelData, REML=FALSE)
+lmerAccuracy_Null = lmer(accuracy ~  + (1|participantID) + (1|videoID), Exp1_VideoLevelData, REML=FALSE)
+
+accuracyModelComparison1 = KRmodcomp(lmerAccuracy_Interaction, lmerAccuracy_Suppression_Condition)
+accuracyModelComparison2 = KRmodcomp(lmerAccuracy_Suppression_Condition, lmerAccuracy_Suppression)
+accuracyModelComparison3 = KRmodcomp(lmerAccuracy_Suppression, lmerAccuracy_Null)
+
+# The model including suppression, condition, but not the interaction between them, significantly improved the model's goodness of fit compared to the other models
+
+tab_model(lmerAccuracy_Suppression_Condition,show.est=FALSE,  show.std = TRUE,show.se = TRUE, show.loglik = TRUE,show.aic=TRUE, pred.labels=c("Intercept","C3 suppression", "C4 suppression", "O1 suppression", "O2 suppression", "Video-Only vs. Audio-Video","Audio-Only vs. Audio-Video") )
+
+
+Exp1_VideoLevelData$condition_labels <- factor(Exp1_VideoLevelData$condition,
+                                                levels = c('both','audioOnly','videoOnly'),labels = c("Audio-Video", "Audio-Only", "Video-Only"))
+
+ggplot(Exp1_VideoLevelData, aes(x=C4_mu_suppression, y=accuracy)) +
+  geom_point(aes(color=condition_labels, shape=condition_labels),size = 2) +
+  geom_smooth(method="lm", se=TRUE,color="gray29") + 
+  labs(x="C4 mu index",
+       y="\nEmpathic Accuracy",
+       title= "Correlation between mu across\nconditions and empathic accuracy") + 
+  theme_bw() +
+  scale_color_manual(values=c("#F8766D", "#619CFF", "#00BA38"),name="Condition", labels=c("Audio-Video", "Audio-Only", "Video-Only"))+
+  scale_shape_discrete(name="Condition",  labels=c("Audio-Video", "Audio-Only", "Video-Only")) + theme_bw()+
+  annotate("text",
+           label = paste0 (expression( "\u03B2" )," = -0.21" ,
+                           PtoStars(0.036)), x=-2, y=1.1)+ 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")
+
+
+```
+
+
+
+```{r Exp1-psot-hoc: video-level analyses, echo=FALSE, warning=FALSE, message=FALSE }
+
+
+lmerAccuracy_Suppression_Condition_scale = lmer(scale(accuracy) ~ scale(C3_mu_suppression) + scale(C4_mu_suppression) + scale(O1_alpha_suppression) + scale(O2_alpha_suppression) + condition + (1|participantID) + (1|videoID), Exp1_VideoLevelData, REML=FALSE)
+
+
+
+lmerAccuracy_Suppression_Condition_scale_contrasts  <- emmeans(lmerAccuracy_Suppression_Condition_scale, list(pairwise ~ condition), adjust= "bonferroni")
+
+
+pander(emmeans_confint(lmerAccuracy_Suppression_Condition_scale_contrasts$`pairwise differences of condition`),split.table=160)
+
+ggplot(Exp1_VideoLevelData,aes(x = condition_labels, y = accuracy,
+                      group = condition_labels, fill = condition_labels)) +
+  geom_boxplot() +
+  geom_jitter(width = .05, alpha = .4) +
+  theme_bw() +ylim(-0.5,1.25)+
+  labs(title = "Empathic Accuracy\n",
+       x = " ",
+       y = "\nEmpathic Accuracy",
+       fill = "Condition"
+  )+ theme_bw() + 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")+
+  geom_signif(y_position=c(1.1, 1.2), xmin=c(2, 1), xmax=c(3, 3),
+              annotation=c("**", "***"), tip_length=0.03)+ 
+  scale_fill_manual(name = "Condition",
+                    labels = c("Audio-Video", "Audio-Only", "Video-Only"),
+                    values=c("#F8766D", "#619CFF", "#00BA38"))
+
+```
+
+Finally, we considered the epoch-level analyses predicting change detection:
+
+
+```{r Exp1-empathic accuracy epoch-level analyses,echo=FALSE, warning=FALSE, message=FALSE}
+
+# Extracting complete cases
+Exp1_ThreeSecData_complete <- Exp1_ThreeSecData[complete.cases(Exp1_ThreeSecData[,c("detectChange", "C3_mu_suppression", "C4_mu_suppression", "O1_alpha_suppression", "O2_alpha_suppression", "condition")]),]
+
+
+Exp1_ThreeSecData_complete$conditionRef <- factor(Exp1_ThreeSecData_complete$condition,levels = 
+                                            c("both","videoOnly", "audioOnly"))
+
+# The four model's comparison: 
+lmerEpoch_ChangeDetect_Interaction = glmer(detectChange ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) * conditionRef + (1|participantID) + (1|videoID), family="binomial", Exp1_ThreeSecData_complete); 
+lmerEpoch_ChangeDetect_Suppression_Condition = glmer(detectChange ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), family="binomial", Exp1_ThreeSecData_complete); 
+lmerEpoch_ChangeDetect_Suppression = glmer(detectChange ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + (1|participantID) + (1|videoID), family="binomial", Exp1_ThreeSecData_complete); 
+lmerEpoch_ChangeDetect_Null = glmer(detectChange ~  (1|participantID) + (1|videoID), family="binomial", Exp1_ThreeSecData_complete)
+
+ 
+
+ChangeDetectModelComparison <-  anova(lmerEpoch_ChangeDetect_Null,lmerEpoch_ChangeDetect_Suppression,lmerEpoch_ChangeDetect_Suppression_Condition,lmerEpoch_ChangeDetect_Interaction)
+
+# The model including suppression, condition, but not the interaction between them, significantly improved the model's goodness of fit compared to the other models
+
+tab_model(lmerEpoch_ChangeDetect_Suppression_Condition, show.est= FALSE, show.std = TRUE,show.se = TRUE, show.loglik = TRUE,show.aic=TRUE,transform=NULL, pred.labels=c("Intercept","C3 suppression", "C4 suppression", "O1 suppression", "O2 suppression", "Video-Only vs. Audio-Video","Audio-Only vs. Audio-Video") )
+```
+
+
+```{r Exp1-psot-hoc: epoch-level analyses, echo=FALSE, warning=FALSE, message=FALSE}
+
+lmerEpoch_ChangeDetect_Suppression_Condition_scale = glmer(detectChange ~ scale(C3_mu_suppression) + scale(C4_mu_suppression) + scale(O1_alpha_suppression) + scale(O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), family="binomial", Exp1_ThreeSecData_complete)
+
+lmerEpoch_ChangeDetect_Suppression_Condition_scale_contrasts <- emmeans(lmerEpoch_ChangeDetect_Suppression_Condition_scale, list(pairwise ~ conditionRef), adjust= "bonferroni")
+
+
+lmerEpoch_ChangeDetect_contrasts <-  emmeans_confint(lmerEpoch_ChangeDetect_Suppression_Condition_scale_contrasts$`pairwise differences of conditionRef`)
+```
+
+```{r Exp1-empathic accuracy epoch-level plots, echo=FALSE, warning=FALSE, message=FALSE}
+
+#Figure 4A+B:
+
+thisParticipantSubset = subset(Exp1_ThreeSecData, Exp1_ThreeSecData$participantID=="105" & Exp1_ThreeSecData$videoID=="AF1M_008" & Exp1_ThreeSecData$condition == "both")
+
+
+
+timecourse1 = ggplot(thisParticipantSubset, aes(x=time, y=rating))
+timecourse2 = ggplot(thisParticipantSubset, aes(x=time, y=C4_mu_suppression))
+
+for(thisRow in c(1:nrow(thisParticipantSubset))) {
+  if(!is.na(thisParticipantSubset$detectChange[thisRow])) {
+    if(thisParticipantSubset$detectChange[thisRow]) {
+      thisRect = annotate("rect", xmin = thisParticipantSubset$time[thisRow]-1.52,
+                          xmax = thisParticipantSubset$time[thisRow]+1.52, 
+                          ymin=-Inf, ymax=+Inf, fill="#BBBBBB", alpha=1.0)
+      timecourse1 = timecourse1 + thisRect
+      timecourse2 = timecourse2 + thisRect
+    }
+  }
+}
+
+timecourse1 = timecourse1 + 
+  geom_point(aes(group=factor(participantID))) +
+  geom_line(aes(group=factor(participantID))) +
+  geom_line(aes(x=time, y=targetRating), color="red", linetype="dashed") +
+  ylab("Ratings") + xlab("Time (s)") + theme_bw(base_size=16) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+timecourse2 = timecourse2 + geom_point() + geom_line() + # scale_fill_discrete(guide=FALSE) + 
+  ylab("C4 Suppression") + xlab("Time (s)") + 
+  coord_cartesian(xlim=c(3, 156), ylim=
+                    c(-max(abs(min(thisParticipantSubset$C4_mu_suppression)), max(thisParticipantSubset$C4_mu_suppression)),
+                      max(abs(min(thisParticipantSubset$C4_mu_suppression)), max(thisParticipantSubset$C4_mu_suppression)))) + 
+  theme_bw(base_size=16) + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+#Figure 4A:
+timecourse1
+
+#Figure 4B:
+timecourse2
+
+
+#Figure 4C:
+d_eegPlot <-  Exp1_ThreeSecData
+
+d_eegPlot$detectChangeNumeric = d_eegPlot$detectChange*1
+
+    hist_both <- hist(d_eegPlot$C4_mu_suppression[!is.na(d_eegPlot$detectChangeNumeric)],plot=FALSE,breaks="Sturges")
+    hist0 <- hist(d_eegPlot$C4_mu_suppression[d_eegPlot$detectChangeNumeric==0],breaks=hist_both$breaks,plot=FALSE)
+    hist1 <- hist(d_eegPlot$C4_mu_suppression[d_eegPlot$detectChangeNumeric==1],breaks=hist_both$breaks,plot=FALSE)
+    max_count=max(c(hist0$counts,hist1$counts))
+    hist_df=data.frame(mids=hist_both$mids,
+                       #counts_below = 0,
+                       counts0 = hist0$counts/max_count/2,
+                       counts_mid = 1 - hist_both$counts/max_count/2,
+                       counts1 = hist1$counts/max_count/2)
+    hist.m=melt(hist_df,id=1)
+    # need to resort hist.m to get the bars to appear correctly.
+    hist.m$variable = factor(hist.m$variable, levels = c("counts1", "counts_mid", "counts0"))
+    #hist.m = hist.m[order(hist.m$variable, decreasing=T),]
+  
+
+    ggplot(d_eegPlot, aes(x = C4_mu_suppression, y = detectChangeNumeric)) +
+      theme_bw(base_size = 16) +
+      geom_bar(data=hist.m[order(hist.m$variable, decreasing=F),], aes(x=mids, y=value, fill=variable),stat="identity") +
+  scale_fill_manual(breaks=c("counts1", "counts_mid", "counts0"), values=c("#BBBBBB", NA,"#DDDDDD")) +
+      geom_smooth(method = "glm", method.args = list(family = "binomial"), size=1.5) +
+      scale_y_continuous(breaks=c(0, 1), labels=c("Fail", "Success")) +
+      guides(fill=FALSE) + 
+      ylab("Histogram of \ndetecting changes in affect") + xlab("C4 Suppression Within Epoch") +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+
+
+
+```
+
+## Experiment 2 
+
+First, we examined the levels of suppression across the different sites:
+
+
+
+```{r Exp2-suppression levels, echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp2_ThreeSecData <- read.csv("Data_3Seconds_Experiment2.csv")
+
+Exp2_ThreeSecData$conditionRelevel = factor(Exp2_ThreeSecData$condition, 
+                                             labels = c("videoOnly", "audioOnly", "both"))
+
+#### ---- Explanation of variables ---- ####
+
+# participantID -  The participant's ID number
+# videoID -  The stimuli number
+# condition -  The viewing conditions: video-only, audio-only, and video+audio (i.e, videoOnly, audioOnly,both)
+# time - The time point in the video
+# bad - Noisy EEG signal 
+# C3_mu_suppression - Mu suppression measured over C3
+# C4_mu_suppression - Mu suppression measured over C4
+# O1_alpha_suppression - Alpha suppression measured over O1
+# O2_alpha_suppression - Alpha suppression measured over O2
+# Central_suppression - Mean mu suppression measured over the central sites (C3 and C4)
+# Occipital_suppression -Mean alpha suppression measured over the occipital sites (O1 and O2)
+# rating- The participant's valence rating
+# targetRating- The target's valence rating
+# ratingChange- The change in the participant's rating relative to the previous time point
+# ratingChangeCategorical- The categorical value of the participant's rating  change (i.e., Decrease, Maintain, Decrease)
+# targetRatingChange- The change in the target rating relative to the previous time point
+# targetRatingChangeCategorical- The categorical value of the target's rating  change (i.e., Decrease, Maintain, Decrease)
+# detectChange- Correct or incorrect change detection (i.e., TRUE, FALSE)
+
+
+
+# Suppression over the central sites
+
+lmer_central_suppression_condition = lmerTest::lmer(scale(Central_suppression) ~ conditionRelevel + (1|participantID) + (1|videoID), Exp2_ThreeSecData)
+
+# Post-hoc contrasts with Bonferroni corrections 
+Post_hoc_central_suppression_condition <- emmeans(lmer_central_suppression_condition,list(pairwise ~ conditionRelevel), adjust= "bonferroni")
+
+# Calculation of CI to the contrasts
+Post_hoc_central_suppression_condition_CI<-  emmeans_confint(Post_hoc_central_suppression_condition$`pairwise differences of conditionRelevel`)
+
+print("central suppression")
+pander(Post_hoc_central_suppression_condition_CI,split.table=160)
+
+# Suppression over the occipital sites
+lmer_occipital_suppression_condition = lmerTest::lmer(scale(Occipital_suppression) ~ conditionRelevel + (1|participantID) + (1|videoID), Exp2_ThreeSecData)
+
+# Post-hoc contrasts with Bonferroni corrections 
+Post_hoc_occipital_suppression_condition <- emmeans(lmer_occipital_suppression_condition,list(pairwise ~ conditionRelevel), adjust= "bonferroni")
+
+# Calculation of CI to the contrasts
+Post_hoc_occipital_suppression_condition_CI <-  emmeans_confint(Post_hoc_occipital_suppression_condition$`pairwise differences of conditionRelevel`)
+
+print("occipital suppression")
+pander(Post_hoc_occipital_suppression_condition_CI,split.table=160)
+
+```
+
+```{r Exp2-suppression levels-Plot, echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp2_lmer_central_suppression_condition_notScale = lmerTest::lmer(Central_suppression ~ condition + (1|participantID) + (1|videoID), Exp2_ThreeSecData)
+Exp2_lmer_occipital_suppression_condition_notScale = lmerTest::lmer(Occipital_suppression ~ condition + (1|participantID) + (1|videoID), Exp2_ThreeSecData)
+
+
+# Extracting the estimated values of the central suppression from the model
+Exp2_central_suppression_estimatedMean <- as.data.frame(emmeans(Exp2_lmer_central_suppression_condition_notScale,list(pairwise ~ condition), adjust= "bonferroni")$`emmeans of condition`) %>% mutate(site= "Central")
+
+# Extracting the estimated values of the occipital suppression from the model
+Exp2_occipital_suppression_estimatedMean <- as.data.frame(emmeans(Exp2_lmer_occipital_suppression_condition_notScale,list(pairwise ~ condition), adjust= "bonferroni")$`emmeans of condition`)%>% mutate(site= "Occipital") 
+
+# Consolidation of the estimated central and occipital suppression values
+Exp2_suppressionData <- rbind(Exp2_central_suppression_estimatedMean,Exp2_occipital_suppression_estimatedMean)
+
+pander(Exp2_suppressionData)
+
+Exp2_suppressionData$condition <- factor(Exp2_suppressionData$condition, levels = c('both','audioOnly','videoOnly'),labels = c("Audio-Video", "Audio-Only", "Video-Only"))
+
+ggplot(Exp2_suppressionData, aes(x=site, y=emmean, fill=condition)) + 
+  geom_bar(stat="identity", position=position_dodge()) + ylim(-0.2,0.60)+
+  geom_errorbar(aes( ymin=emmean-SE, ymax=emmean+SE),width=.2, position=position_dodge(.9)) +
+  labs(y="Averaged mu/alpha\nrhythms from models",
+       x="Site (bilateral)",
+       title = "Alpha and mu rhythms in the\ndifferent conditions")  +
+  scale_fill_manual(name = "Condition",
+                    labels = c("Audio-Video", "Audio-Only", "Video-Only"),
+                    values=c("#F8766D", "#619CFF", "#00BA38"))+theme_bw() + 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")+
+  geom_signif(y_position=c(0.5, 0.5,0.5,0.5,0.55), xmin=c(0.7, 1.02,1.7,2.02,1.7), 
+              xmax=c(0.97, 1.29,1.97,2.29,2.29), annotation=c("***", "***","***","***","***"), tip_length=0.02)
+
+
+
+```
+
+Next, we turned to the video-level analyses predicting empathic accuracy:
+
+```{r Exp2-empathic accuracy video-level analyses,echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp2_VideoLevelData <- read.csv("Data_VideoLevel_Experiment2.csv")
+
+#### ---- Explanation of variables ---- ####
+
+# participantID -  The participant ID
+# videoID -  The stimuli number
+# condition -  The viewing conditions: video-only, audio-only, and video+audio (i.e, videoOnly, audioOnly,both)
+
+# C3_mu_suppression - Mu suppression over C3 
+# C4_mu_suppression - Mu suppression over C4
+# O1_alpha_suppression - Alpha suppression over O1
+# O2_alpha_suppression - Alpha suppression over O2
+# accuracy - The correlation of the participant's judgments with the target's own self-reported affect
+# Age- The participant's age
+# Gender- The participant's gender(i.e., Female, Male)
+# Education_Years- The participant's years of education
+# DominantHand - (1): right-hander, (2): left-hander
+
+
+Exp2_VideoLevelData <- RemovaOutliers("accuracy",2,Exp2_VideoLevelData) #remove outliers
+
+Exp2_VideoLevelData$conditionRef <- factor(Exp2_VideoLevelData$condition, levels =  c("both", "videoOnly", "audioOnly"))
+  
+# the four model's comparison: 
+
+Exp2_lmerAccuracy_Interaction = lmer(accuracy ~ C3_mu_suppression+C4_mu_suppression  +  O1_alpha_suppression + O2_alpha_suppression +(C4_mu_suppression  * conditionRef) + (1|participantID) + (1|videoID), Exp2_VideoLevelData, REML=FALSE)
+Exp2_lmerAccuracy_Suppression_Condition = lmer(accuracy ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), Exp2_VideoLevelData, REML=FALSE)
+Exp2_lmerAccuracy_Suppression = lmer(accuracy ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + (1|participantID) + (1|videoID), Exp2_VideoLevelData, REML=FALSE)
+Exp2_lmerAccuracy_Null = lmer(accuracy ~  + (1|participantID) + (1|videoID), Exp2_VideoLevelData, REML=FALSE)
+
+Exp2_accuracyModelComparison1 = KRmodcomp(Exp2_lmerAccuracy_Interaction, Exp2_lmerAccuracy_Suppression_Condition)
+Exp2_accuracyModelComparison2 = KRmodcomp(Exp2_lmerAccuracy_Suppression_Condition, Exp2_lmerAccuracy_Suppression)
+Exp2_accuracyModelComparison3 = KRmodcomp(Exp2_lmerAccuracy_Suppression, Exp2_lmerAccuracy_Null)
+
+# The model including suppression, condition, and the interaction between them, significantly improved the model's goodness of fit compared to the other models
+
+tab_model(Exp2_lmerAccuracy_Interaction,show.est=FALSE,  show.std = TRUE,show.se = TRUE, show.loglik = TRUE,show.aic=TRUE, pred.labels=c("Intercept","C3 suppression", "C4 suppression", "O1 suppression", "O2 suppression", "Video-Only vs. Audio-Video","Audio-Only vs. Audio-Video", "C4 suppression*Video-Only","C4 suppression*Audio-Only") )
+
+
+Exp2_VideoLevelData$condition_labels <- factor(Exp2_VideoLevelData$condition,
+                                                levels = c('both','audioOnly','videoOnly'),labels = c("Audio-Video", "Audio-Only", "Video-Only"))
+
+
+
+ggplot(Exp2_VideoLevelData, aes(x=C4_mu_suppression, y=accuracy,color =condition_labels)) +
+  geom_point(aes(color=condition_labels, shape=condition_labels),size = 2) +
+  geom_smooth(method="lm", se=TRUE) + 
+  labs(x="C4 mu index",
+       y="\nEmpathic Accuracy",
+       title= "Correlation between mu across\nconditions and empathic accuracy") + 
+  theme_bw() +ylim(-0.5,1.1)+
+  scale_color_manual(values=c("#F8766D", "#619CFF", "#00BA38"),name="Condition", labels=c("Audio-Video", "Audio-Only", "Video-Only"))+
+  scale_shape_discrete(name="Condition",  labels=c("Audio-Video", "Audio-Only", "Video-Only")) + theme_bw()+
+  annotate("text",
+           label = paste0 (expression( "\u03B2" )," = -0.25",
+                           PtoStars(0.017)), x=-1.45, y=1.1,color="#00BA38" )+ 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")
+
+
+```
+
+
+```{r Exp2-psot-hoc: video-level analyses, echo=FALSE, warning=FALSE, message=FALSE }
+
+Exp2_lmerAccuracy_Suppression_Condition_scale = lmer(scale(accuracy) ~ scale(C3_mu_suppression)  + scale(O1_alpha_suppression) + scale(O2_alpha_suppression) +( scale(C4_mu_suppression) * condition) + (1|participantID) + (1|videoID), Exp2_VideoLevelData, REML=FALSE)
+
+
+Exp2_lmerAccuracy_Suppression_Condition_scale_contrasts  <- emmeans(Exp2_lmerAccuracy_Suppression_Condition_scale, list(pairwise ~ condition), adjust= "bonferroni")
+
+
+pander(emmeans_confint(Exp2_lmerAccuracy_Suppression_Condition_scale_contrasts$`pairwise differences of condition`))
+
+
+ggplot(Exp2_VideoLevelData,aes(x = condition_labels, y = accuracy,
+                      group = condition_labels, fill = condition_labels)) +
+  geom_boxplot() +
+  geom_jitter(width = .05, alpha = .4) +
+  theme_bw() +ylim(-0.5,1.25)+
+  labs(title = "Empathic Accuracy\n",
+       x = " ",
+       y = "\nEmpathic Accuracy",
+       fill = "Condition"
+  )+ theme_bw() + 
+  theme(plot.title = element_text(family = "Helvetica", face = "bold", size = (18)),
+        axis.text=element_text(size=14, color = "black"),
+        axis.title.x = element_text(size = 14),
+        axis.title.y = element_text(size = 18),
+        plot.background = element_rect("white"),
+        legend.position = "none")+
+  geom_signif(y_position=c(1.1, 1.2), xmin=c(2, 1), xmax=c(3, 3),
+              annotation=c("***", "***"), tip_length=0.03)+ 
+  scale_fill_manual(name = "Condition",
+                    labels = c("Audio-Video", "Audio-Only", "Video-Only"),
+                    values=c("#F8766D", "#619CFF", "#00BA38"))
+
+
+```
+
+
+Finally, we considered the epoch-level analyses predicting change detection:
+
+
+```{r Exp2-empathic accuracy epoch-level analyses,echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp2_ThreeSecData_complete <- Exp2_ThreeSecData[complete.cases(Exp2_ThreeSecData[,c("detectChange", "C3_mu_suppression", "C4_mu_suppression", "O1_alpha_suppression", "O2_alpha_suppression", "condition")]),]
+
+
+Exp2_ThreeSecData_complete$conditionRef <- factor(Exp2_ThreeSecData_complete$condition,levels = 
+                                            c("both","videoOnly", "audioOnly"))
+
+# The four model's comparison: 
+Exp2_lmerEpoch_ChangeDetect_Interaction = glmer(detectChange ~ C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression+ (C4_mu_suppression * conditionRef) + (1|participantID) + (1|videoID), family="binomial", Exp2_ThreeSecData_complete); 
+Exp2_lmerEpoch_ChangeDetect_Suppression_Condition = glmer(detectChange ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), family="binomial", Exp2_ThreeSecData_complete); 
+Exp2_lmerEpoch_ChangeDetect_Suppression = glmer(detectChange ~ (C3_mu_suppression + C4_mu_suppression + O1_alpha_suppression + O2_alpha_suppression) + (1|participantID) + (1|videoID), family="binomial", Exp2_ThreeSecData_complete); 
+Exp2_lmerEpoch_ChangeDetect_Null = glmer(detectChange ~  (1|participantID) + (1|videoID), family="binomial", Exp2_ThreeSecData_complete)
+
+ 
+
+Exp2_ChangeDetectModelComparison <-  anova(Exp2_lmerEpoch_ChangeDetect_Null,Exp2_lmerEpoch_ChangeDetect_Suppression,Exp2_lmerEpoch_ChangeDetect_Suppression_Condition,Exp2_lmerEpoch_ChangeDetect_Interaction)
+
+
+# The model including suppression, condition, but not the interaction between them, significantly improved the model's goodness of fit compared to the other models
+
+tab_model(Exp2_lmerEpoch_ChangeDetect_Suppression_Condition,show.est=FALSE,  show.std = TRUE,show.se = TRUE, show.loglik = TRUE,show.aic=TRUE,transform = NULL, pred.labels=c("Intercept","C3 suppression", "C4 suppression", "O1 suppression", "O2 suppression", "Video-Only vs. Audio-Video","Audio-Only vs. Audio-Video"))
+
+```
+
+
+
+```{r Exp2-psot-hoc: epoch-level analyses, echo=FALSE, warning=FALSE, message=FALSE}
+
+Exp2_lmerEpoch_ChangeDetect_Suppression_Condition_scale = glmer(detectChange ~ scale(C3_mu_suppression) + scale(C4_mu_suppression) + scale(O1_alpha_suppression) + scale(O2_alpha_suppression) + conditionRef + (1|participantID) + (1|videoID), family="binomial", Exp2_ThreeSecData_complete)
+
+Exp2_lmerEpoch_ChangeDetect_Suppression_Condition_scale_contrasts <- emmeans(Exp2_lmerEpoch_ChangeDetect_Suppression_Condition_scale, list(pairwise ~ conditionRef), adjust= "bonferroni")
+
+
+Exp2_lmerEpoch_ChangeDetect_contrasts <-  emmeans_confint(Exp2_lmerEpoch_ChangeDetect_Suppression_Condition_scale_contrasts$`pairwise differences of conditionRef`)
+
+```
+
